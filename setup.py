@@ -8,14 +8,14 @@ from os.path import splitext
 
 
 setup(
-    name='bfee2pytorch',
+    name='torchbfee2',
     version='0.0.1a.dev1',
 
     author="Nazanin Donyapour",
     author_email="nazanin.donyapour@axleinfo.com",
-    description="BFEE2PyTorch",
+    description="TorchBFEE2",
     license="MIT",
-    url="https://github.com/ndonyapour/BFEE2_PyTorch.git",
+    url="https://github.com/ndonyapour/TorchBFEE2.git",
     classifiers=[
         "Topic :: Utilities",
         "License :: OSI Approved :: MIT License",
@@ -42,10 +42,6 @@ setup(
 
     install_requires=[
         'numpy',
-        'pandas',
-        'scikit-learn',
-        'skorch',
-        'tabulate',
-        'ParmEd',
+        'mdtraj',
     ],
 )
