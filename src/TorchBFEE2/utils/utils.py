@@ -1,9 +1,8 @@
 import torch
 from ..models.qrotation import Qrotation
 
-def save_quaternion(groupA_idxs, refpos, save_path='quaternion.pt'):
 
-    
+def save_quaternion(groupA_idxs, refpos, save_path='quaternion.pt'):
 
     model = Qrotation(groupA_idxs, refpos)
     script_module = torch.jit.script(model)
