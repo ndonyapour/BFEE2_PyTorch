@@ -34,8 +34,8 @@ class Qrotation(nn.Module):
     normquat: Final[Tuple[float, float, float, float]]
     # groupA_idxs: Final[List[int]]
     # groupB_idxs: Final[List[int]]
-    refpos: List[List[float]]
     refpos_pdb_path: Final[str]
+    refpos: List[List[float]]
     S_eigvec: Tensor
     S_eigval: Tensor
     C: Tensor
@@ -68,16 +68,16 @@ class Qrotation(nn.Module):
 
         S = torch.zeros(4, 4, dtype=C.dtype, device=C.device)
 
-        S[0][0] = - C[0][0] - C[1][1] - C[2][2]
-        S[1][1] = - C[0][0] + C[1][1] + C[2][2]
-        S[2][2] = C[0][0] - C[1][1] + C[2][2]
-        S[3][3] = C[0][0] + C[1][1] - C[2][2]
-        S[0][1] = - C[1][2] + C[2][1]
-        S[0][2] = C[0][2] - C[2][0]
-        S[0][3] = - C[0][1] + C[1][0]
-        S[1][2] = - C[0][1] - C[1][0]
-        S[1][3] = - C[0][2] - C[2][0]
-        S[2][3] = - C[1][2] - C[2][1]
+        S[0][0] = C[0][0] + C[1][1] + C[2][2]
+        S[1][1] = C[0][0] - C[1][1] - C[2][2]
+        S[2][2] = - C[0][0] + C[1][1] - C[2][2]
+        S[3][3] = - C[0][0] - C[1][1] + C[2][2]
+        S[0][1] = C[1][2] - C[2][1]
+        S[0][2] = - C[0][2] + C[2][0]
+        S[0][3] = C[0][1] - C[1][0]
+        S[1][2] = C[0][1] + C[1][0]
+        S[1][3] = C[0][2] + C[2][0]
+        S[2][3] = C[1][2] + C[2][1]
         S[1][0] = S[0][1]
         S[2][0] = S[0][2]
         S[2][1] = S[1][2]
@@ -90,22 +90,20 @@ class Qrotation(nn.Module):
 
     def diagonalize_matrix(self):
 
-        self.S_eigval, self.S_eigvec = torch.linalg.eig(self.S)
+        U, S, V = torch.linalg.svd(self.S)
+        self.S_eigval = S**2 / (S**2).sum()
+        self.S_eigvec = V
 
-        self.S_eigval = self.S_eigval.type(self.S.dtype)
-        self.S_eigvec = self.S_eigvec.type(self.S.dtype)
+        # convert complex values to real
+        self.S_eigval = torch.real(self.S_eigval)
+        self.S_eigvec = torch.real(self.S_eigvec)
 
         normquat = torch.tensor(self.normquat, dtype=self.S.dtype, device=self.S.device)
-        # import ipdb
-        # ipdb.set_trace()
-
         for idx, dotprodcut in enumerate(torch.matmul(self.S_eigvec, normquat)):
             if dotprodcut < 0:
                 self.S_eigvec[idx] *= -1
 
     def getQfromEigenvecs(self, idx: int) -> Tensor:
-
-        # torch.tensor([self.S_eigvec[idx][0], self.S_eigvec[idx][1], self.S_eigvec[idx][2], self.S_eigvec[idx][3]])
         return self.S_eigvec[idx, :]
 
     def calc_optimal_rotation(self, pos1: Tensor, pos2: Tensor) -> Tensor:
