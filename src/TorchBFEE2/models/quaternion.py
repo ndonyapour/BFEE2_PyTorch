@@ -1,7 +1,7 @@
 import os
 import numpy as np
 
-import mdtraj as mdj
+#import mdtraj as mdj
 
 import torch
 from torch import Tensor
@@ -25,16 +25,16 @@ def shiftbyCOG(pos: Tensor) -> Tensor:
     return translateCoordinates(pos, cog)
 
 
-class Qrotation(nn.Module):
+class Quaternion(nn.Module):
     """Finds the optimal rotation between two molecules using quaternion.
     The details of this method can be found on
     https://onlinelibrary.wiley.com/doi/10.1002/jcc.20110.
     """
 
     normquat: Final[Tuple[float, float, float, float]]
-    # groupA_idxs: Final[List[int]]
-    # groupB_idxs: Final[List[int]]
-    refpos_pdb_path: Final[str]
+    # group_idxs: Final[List[int]]
+    # fittingGroup_idxs: Final[List[int]]
+    refpositions_file: Final[str]
     refpos: List[List[float]]
     S_eigvec: Tensor
     S_eigval: Tensor
@@ -42,21 +42,22 @@ class Qrotation(nn.Module):
     S: Tensor
     q: Tensor
 
-    def __init__(self, groupA_idxs: List[int], refpos_pdb_path: str,
-                 groupB_idxs: Optional[List[int]] = None, normquat: Tuple[float, float, float, float] = (1.0, 0.0, 0.0, 0.0)):
-        """Constructor for the qrotation model
+    def __init__(self, group_idxs: List[int], refpositions: List[List[float]],
+                 fittingGroup_idxs: Optional[List[int]] = None, 
+                 normquat: Tuple[float, float, float, float] = (1.0, 0.0, 0.0, 0.0)):
+        """Constructor for the Quaternion model
         """
         super().__init__()
         self.is_trainable = False
         self.normquat = normquat
-        self.groupA_idxs = groupA_idxs
-        self.groupB_idxs = groupB_idxs
-        self.refpos_pdb_path = refpos_pdb_path
+        self.group_idxs = group_idxs
+        self.fittingGroup_idxs = fittingGroup_idxs
+        #self.refpositions_file = refpositions_file
         self.S = torch.zeros(4, 4)
         self.S_eigval = torch.zeros(4)
         self.S_eigvec = torch.zeros(4, 4)
         self.q = torch.zeros(4)
-        self.refpos = mdj.load_pdb(self.refpos_pdb_path).xyz[0].tolist()
+        self.refpos = refpositions #mdj.load_pdb(self.refpositions_file).xyz[0].tolist()
         # self.register_buffer()
 
     def build_correlation_matrix(self, pos1: Tensor, pos2: Tensor) -> Tensor:
@@ -98,13 +99,13 @@ class Qrotation(nn.Module):
         self.S_eigval = torch.real(self.S_eigval)
         self.S_eigvec = torch.real(self.S_eigvec)
 
-        normquat = torch.tensor(self.normquat, dtype=self.S.dtype, device=self.S.device)
-        for idx, dotprodcut in enumerate(torch.matmul(self.S_eigvec, normquat)):
-            if dotprodcut < 0:
-                self.S_eigvec[idx] *= -1
 
     def getQfromEigenvecs(self, idx: int) -> Tensor:
-        return self.S_eigvec[idx, :]
+        normquat = torch.tensor(self.normquat, dtype=self.S.dtype, device=self.S.device)
+        if torch.matmul(self.S_eigvec[idx, :], normquat) < 0:
+            return -1 * self.S_eigvec[idx, :]
+        else:
+            return self.S_eigvec[idx, :]
 
     def calc_optimal_rotation(self, pos1: Tensor, pos2: Tensor) -> Tensor:
 
@@ -132,12 +133,33 @@ class Qrotation(nn.Module):
 
     def forward(self, pos: Tensor):
 
-        # Cenetr groupA pos
+        if self.fittingGroup_idxs is None:
+            # Cenetr groupA pos
+            centered_pos = shiftbyCOG(pos[self.group_idxs])
 
-        centered_pos1 = shiftbyCOG(pos[self.groupA_idxs])
+            # Center refpos group A
+            refpos = torch.tensor(self.refpos, dtype=pos.dtype, device=pos.device)
+            centerded_refpos = shiftbyCOG(refpos)
+            rot_q = self.calc_optimal_rotation(centerded_refpos, centered_pos)
 
-        # Center refpos group A
-        refpos = torch.tensor(self.refpos, dtype=pos.dtype, device=pos.device)
-        centerded_refpos1 = shiftbyCOG(refpos[self.groupA_idxs])
+        else:
+            # second group used for fitting 
+            # center ref pos
+            refpos = torch.tensor(self.refpos, dtype=pos.dtype, device=pos.device)
+            centered_refpos = shiftbyCOG(refpos[self.group_idxs])
+            centered_refpos_fitgroup = shiftbyCOG(refpos[self.fittingGroup_idxs])
 
-        return self.calc_optimal_rotation(centerded_refpos1, centered_pos1)
+            # calc COG of the fitting group
+            fitgroup_COG = calculateCOG(pos[self.fittingGroup_idxs])
+            centered_pos = translateCoordinates(pos[self.group_idxs], fitgroup_COG)
+            centered_pos_fitgroup = translateCoordinates(pos[self.fittingGroup_idxs], fitgroup_COG)
+            fit_rot_q = self.calc_optimal_rotation(centered_pos_fitgroup, centered_refpos_fitgroup)
+
+            # rotate both groups
+            rotated_pos = self.rotateCoordinates(fit_rot_q, centered_pos)
+            #rotsted_pos_fitgroup = self.rotateCoordinates(fit_rot_q, centered_pos_fitgroup)
+
+            # find optimal rotation between aligned group atoms 
+            rot_q = self.calc_optimal_rotation(centered_refpos, rotated_pos)
+
+        return rot_q[0]
